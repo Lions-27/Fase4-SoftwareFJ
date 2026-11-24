@@ -2,7 +2,12 @@
 
 import re
 
+from utilidades.excepciones import ClienteInvalidoError
+from utilidades.logger import obtener_logger
+
 from .entidad import Entidad
+
+_LOGGER = obtener_logger(__name__)
 
 # El documento admite letras, números, puntos y guiones, con longitud de 5 a 20.
 _PATRON_DOCUMENTO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{3,18}[A-Za-z0-9]$")
@@ -31,6 +36,7 @@ class Cliente(Entidad):
         self.documento = documento
         self.correo = correo
         self.telefono = telefono
+        _LOGGER.info("Cliente creado correctamente: %s", self.identificador)
 
     @property
     def nombre(self) -> str:
@@ -40,14 +46,18 @@ class Cliente(Entidad):
     @nombre.setter
     def nombre(self, valor: str) -> None:
         """Almacena el nombre sin espacios externos y rechaza valores vacíos."""
-        if not isinstance(valor, str):
-            raise TypeError("El nombre debe ser una cadena de texto.")
-        nombre_limpio = valor.strip()
-        if not nombre_limpio:
-            raise ValueError("El nombre no puede estar vacío.")
-        if any(not caracter.isprintable() for caracter in nombre_limpio):
-            raise ValueError("El nombre contiene caracteres no válidos.")
-        self.__nombre = nombre_limpio
+        try:
+            if not isinstance(valor, str):
+                raise TypeError("El nombre debe ser una cadena de texto.")
+            nombre_limpio = valor.strip()
+            if not nombre_limpio:
+                raise ValueError("El nombre no puede estar vacío.")
+            if any(not caracter.isprintable() for caracter in nombre_limpio):
+                raise ValueError("El nombre contiene caracteres no válidos.")
+            self.__nombre = nombre_limpio
+        except (TypeError, ValueError) as error:
+            _LOGGER.exception("No se pudo validar el nombre del cliente.")
+            raise ClienteInvalidoError(str(error)) from error
 
     @property
     def documento(self) -> str:
@@ -57,15 +67,19 @@ class Cliente(Entidad):
     @documento.setter
     def documento(self, valor: str) -> None:
         """Valida el formato general del documento antes de almacenarlo."""
-        if not isinstance(valor, str):
-            raise TypeError("El documento debe ser una cadena de texto.")
-        documento_limpio = valor.strip()
-        if not _PATRON_DOCUMENTO.fullmatch(documento_limpio):
-            raise ValueError(
-                "El documento debe tener entre 5 y 20 caracteres "
-                "alfanuméricos; puede incluir puntos o guiones internos."
-            )
-        self.__documento = documento_limpio
+        try:
+            if not isinstance(valor, str):
+                raise TypeError("El documento debe ser una cadena de texto.")
+            documento_limpio = valor.strip()
+            if not _PATRON_DOCUMENTO.fullmatch(documento_limpio):
+                raise ValueError(
+                    "El documento debe tener entre 5 y 20 caracteres "
+                    "alfanuméricos; puede incluir puntos o guiones internos."
+                )
+            self.__documento = documento_limpio
+        except (TypeError, ValueError) as error:
+            _LOGGER.exception("No se pudo validar el documento del cliente.")
+            raise ClienteInvalidoError(str(error)) from error
 
     @property
     def correo(self) -> str:
@@ -75,12 +89,16 @@ class Cliente(Entidad):
     @correo.setter
     def correo(self, valor: str) -> None:
         """Valida el formato del correo y lo almacena en minúsculas."""
-        if not isinstance(valor, str):
-            raise TypeError("El correo debe ser una cadena de texto.")
-        correo_limpio = valor.strip()
-        if not _PATRON_CORREO.fullmatch(correo_limpio):
-            raise ValueError("El correo electrónico tiene un formato no válido.")
-        self.__correo = correo_limpio.lower()
+        try:
+            if not isinstance(valor, str):
+                raise TypeError("El correo debe ser una cadena de texto.")
+            correo_limpio = valor.strip()
+            if not _PATRON_CORREO.fullmatch(correo_limpio):
+                raise ValueError("El correo electrónico tiene un formato no válido.")
+            self.__correo = correo_limpio.lower()
+        except (TypeError, ValueError) as error:
+            _LOGGER.exception("No se pudo validar el correo del cliente.")
+            raise ClienteInvalidoError(str(error)) from error
 
     @property
     def telefono(self) -> str:
@@ -90,26 +108,32 @@ class Cliente(Entidad):
     @telefono.setter
     def telefono(self, valor: str) -> None:
         """Valida un teléfono de 7 a 15 dígitos y separadores habituales."""
-        if not isinstance(valor, str):
-            raise TypeError("El teléfono debe ser una cadena de texto.")
-        telefono_limpio = valor.strip()
-        cantidad_digitos = sum(caracter.isdigit() for caracter in telefono_limpio)
-        if (
-            not _PATRON_TELEFONO.fullmatch(telefono_limpio)
-            or not 7 <= cantidad_digitos <= 15
-            or ("(" in telefono_limpio) != (")" in telefono_limpio)
-            or telefono_limpio.count("(") > 1
-            or telefono_limpio.count(")") > 1
-            or (
-                "(" in telefono_limpio
-                and telefono_limpio.index("(") > telefono_limpio.index(")")
+        try:
+            if not isinstance(valor, str):
+                raise TypeError("El teléfono debe ser una cadena de texto.")
+            telefono_limpio = valor.strip()
+            cantidad_digitos = sum(
+                caracter.isdigit() for caracter in telefono_limpio
             )
-        ):
-            raise ValueError(
-                "El teléfono debe contener entre 7 y 15 dígitos y usar "
-                "un formato telefónico válido."
-            )
-        self.__telefono = telefono_limpio
+            if (
+                not _PATRON_TELEFONO.fullmatch(telefono_limpio)
+                or not 7 <= cantidad_digitos <= 15
+                or ("(" in telefono_limpio) != (")" in telefono_limpio)
+                or telefono_limpio.count("(") > 1
+                or telefono_limpio.count(")") > 1
+                or (
+                    "(" in telefono_limpio
+                    and telefono_limpio.index("(") > telefono_limpio.index(")")
+                )
+            ):
+                raise ValueError(
+                    "El teléfono debe contener entre 7 y 15 dígitos y usar "
+                    "un formato telefónico válido."
+                )
+            self.__telefono = telefono_limpio
+        except (TypeError, ValueError) as error:
+            _LOGGER.exception("No se pudo validar el teléfono del cliente.")
+            raise ClienteInvalidoError(str(error)) from error
 
     def obtener_resumen(self) -> str:
         """Retorna un resumen del cliente sin exponer datos sensibles."""
