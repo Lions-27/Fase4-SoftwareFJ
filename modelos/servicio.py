@@ -4,9 +4,13 @@ from abc import abstractmethod
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Iterable
 
+from utilidades.excepciones import CalculoCostoError, ServicioInvalidoError
+from utilidades.logger import obtener_logger
+
 from .entidad import Entidad
 
 _CENTAVO = Decimal("0.01")
+_LOGGER = obtener_logger(__name__)
 
 
 class Servicio(Entidad):
@@ -45,8 +49,10 @@ class Servicio(Entidad):
             raise TypeError(f"{atributo} debe ser un valor numérico.")
         try:
             cantidad = Decimal(str(valor))
-        except (InvalidOperation, ValueError):
-            raise TypeError(f"{atributo} debe ser un valor numérico válido.") from None
+        except (InvalidOperation, ValueError) as error:
+            raise TypeError(
+                f"{atributo} debe ser un valor numérico válido."
+            ) from error
         if not cantidad.is_finite() or cantidad < 0:
             raise ValueError(f"{atributo} debe ser finito y no negativo.")
         return cantidad
@@ -73,7 +79,11 @@ class Servicio(Entidad):
     @nombre.setter
     def nombre(self, valor: str) -> None:
         """Valida y almacena el nombre del servicio."""
-        self.__nombre = self._texto_no_vacio(valor, "El nombre")
+        try:
+            self.__nombre = self._texto_no_vacio(valor, "El nombre")
+        except (TypeError, ValueError) as error:
+            _LOGGER.exception("No se pudo validar el nombre del servicio.")
+            raise ServicioInvalidoError(str(error)) from error
 
     @property
     def tarifa_base(self) -> Decimal:
@@ -83,10 +93,14 @@ class Servicio(Entidad):
     @tarifa_base.setter
     def tarifa_base(self, valor: int | float | Decimal) -> None:
         """Valida y almacena una tarifa base estrictamente positiva."""
-        tarifa = self._decimal_no_negativo(valor, "La tarifa base")
-        if tarifa == 0:
-            raise ValueError("La tarifa base debe ser mayor que cero.")
-        self.__tarifa_base = tarifa
+        try:
+            tarifa = self._decimal_no_negativo(valor, "La tarifa base")
+            if tarifa == 0:
+                raise ValueError("La tarifa base debe ser mayor que cero.")
+            self.__tarifa_base = tarifa
+        except (TypeError, ValueError) as error:
+            _LOGGER.exception("No se pudo validar la tarifa base del servicio.")
+            raise ServicioInvalidoError(str(error)) from error
 
     @property
     def descripcion(self) -> str:
@@ -96,7 +110,11 @@ class Servicio(Entidad):
     @descripcion.setter
     def descripcion(self, valor: str) -> None:
         """Valida y almacena la descripción del servicio."""
-        self.__descripcion = self._texto_no_vacio(valor, "La descripción")
+        try:
+            self.__descripcion = self._texto_no_vacio(valor, "La descripción")
+        except (TypeError, ValueError) as error:
+            _LOGGER.exception("No se pudo validar la descripción del servicio.")
+            raise ServicioInvalidoError(str(error)) from error
 
     @property
     def disponible(self) -> bool:
@@ -106,9 +124,13 @@ class Servicio(Entidad):
     @disponible.setter
     def disponible(self, valor: bool) -> None:
         """Almacena la disponibilidad únicamente si el valor es booleano."""
-        if not isinstance(valor, bool):
-            raise TypeError("La disponibilidad debe ser un valor booleano.")
-        self.__disponible = valor
+        try:
+            if not isinstance(valor, bool):
+                raise TypeError("La disponibilidad debe ser un valor booleano.")
+            self.__disponible = valor
+        except TypeError as error:
+            _LOGGER.exception("No se pudo validar la disponibilidad del servicio.")
+            raise ServicioInvalidoError(str(error)) from error
 
     def _calcular_costo(
         self,
@@ -119,24 +141,34 @@ class Servicio(Entidad):
         multiplicador: int = 1,
     ) -> Decimal:
         """Calcula el subtotal, aplica descuento e IVA y redondea a centavos."""
-        horas = self._decimal_no_negativo(duracion, "La duración")
-        if horas == 0:
-            raise ValueError("La duración debe ser mayor que cero.")
-        descuento = self._validar_porcentaje(
-            descuento_porcentaje, "El descuento porcentual"
-        )
-        if descuento > 100:
-            raise ValueError("El descuento porcentual no puede superar el 100 %.")
-        iva = self._validar_porcentaje(iva_porcentaje, "El IVA porcentual")
-        recargo_valido = self._decimal_no_negativo(recargo, "El recargo")
-        cantidad = self._entero_positivo(multiplicador, "El multiplicador")
+        try:
+            horas = self._decimal_no_negativo(duracion, "La duración")
+            if horas == 0:
+                raise ValueError("La duración debe ser mayor que cero.")
+            descuento = self._validar_porcentaje(
+                descuento_porcentaje, "El descuento porcentual"
+            )
+            if descuento > 100:
+                raise ValueError("El descuento porcentual no puede superar el 100 %.")
+            iva = self._validar_porcentaje(iva_porcentaje, "El IVA porcentual")
+            recargo_valido = self._decimal_no_negativo(recargo, "El recargo")
+            cantidad = self._entero_positivo(multiplicador, "El multiplicador")
 
-        subtotal = self.tarifa_base * horas * cantidad + recargo_valido
-        total_con_descuento = subtotal * (Decimal("1") - descuento / Decimal("100"))
-        total_con_impuesto = total_con_descuento * (
-            Decimal("1") + iva / Decimal("100")
-        )
-        return total_con_impuesto.quantize(_CENTAVO, rounding=ROUND_HALF_UP)
+            subtotal = self.tarifa_base * horas * cantidad + recargo_valido
+            total_con_descuento = subtotal * (
+                Decimal("1") - descuento / Decimal("100")
+            )
+            total_con_impuesto = total_con_descuento * (
+                Decimal("1") + iva / Decimal("100")
+            )
+            total = total_con_impuesto.quantize(
+                _CENTAVO, rounding=ROUND_HALF_UP
+            )
+        except (TypeError, ValueError, InvalidOperation) as error:
+            _LOGGER.exception("No se pudo calcular el costo del servicio.")
+            raise CalculoCostoError(str(error)) from error
+        _LOGGER.info("Costo calculado para el servicio %s: %s", self.identificador, total)
+        return total
 
     @abstractmethod
     def calcular_costo(
@@ -173,6 +205,7 @@ class ReservaSala(Servicio):
         super().__init__(nombre, tarifa_base, descripcion, disponible)
         self.capacidad = capacidad
         self.equipamiento = equipamiento
+        _LOGGER.info("Reserva de sala creada correctamente: %s", self.identificador)
 
     @property
     def capacidad(self) -> int:
@@ -182,7 +215,11 @@ class ReservaSala(Servicio):
     @capacidad.setter
     def capacidad(self, valor: int) -> None:
         """Valida y almacena la capacidad de la sala."""
-        self.__capacidad = self._entero_positivo(valor, "La capacidad")
+        try:
+            self.__capacidad = self._entero_positivo(valor, "La capacidad")
+        except (TypeError, ValueError) as error:
+            _LOGGER.exception("No se pudo validar la capacidad de la sala.")
+            raise ServicioInvalidoError(str(error)) from error
 
     @property
     def equipamiento(self) -> tuple[str, ...]:
@@ -192,20 +229,25 @@ class ReservaSala(Servicio):
     @equipamiento.setter
     def equipamiento(self, valores: Iterable[str]) -> None:
         """Valida y almacena una lista inmutable de equipos no repetidos."""
-        if isinstance(valores, (str, bytes)):
-            raise TypeError("El equipamiento debe ser una colección de elementos.")
         try:
+            if isinstance(valores, (str, bytes)):
+                raise TypeError(
+                    "El equipamiento debe ser una colección de elementos."
+                )
             equipo_validado = tuple(
                 self._texto_no_vacio(valor, "Cada elemento del equipamiento")
                 for valor in valores
             )
-        except TypeError:
-            raise TypeError("El equipamiento debe ser una colección iterable.") from None
-        if len({elemento.casefold() for elemento in equipo_validado}) != len(
-            equipo_validado
-        ):
-            raise ValueError("El equipamiento no puede contener elementos repetidos.")
-        self.__equipamiento = equipo_validado
+            if len({elemento.casefold() for elemento in equipo_validado}) != len(
+                equipo_validado
+            ):
+                raise ValueError(
+                    "El equipamiento no puede contener elementos repetidos."
+                )
+            self.__equipamiento = equipo_validado
+        except (TypeError, ValueError) as error:
+            _LOGGER.exception("No se pudo validar el equipamiento de la sala.")
+            raise ServicioInvalidoError(str(error)) from error
 
     def calcular_costo(
         self,
@@ -236,6 +278,7 @@ class AlquilerEquipo(Servicio):
         super().__init__(nombre, tarifa_base, descripcion, disponible)
         self.tipo_equipo = tipo_equipo
         self.cantidad = cantidad
+        _LOGGER.info("Alquiler de equipo creado correctamente: %s", self.identificador)
 
     @property
     def tipo_equipo(self) -> str:
@@ -245,7 +288,11 @@ class AlquilerEquipo(Servicio):
     @tipo_equipo.setter
     def tipo_equipo(self, valor: str) -> None:
         """Valida y almacena el tipo de equipo."""
-        self.__tipo_equipo = self._texto_no_vacio(valor, "El tipo de equipo")
+        try:
+            self.__tipo_equipo = self._texto_no_vacio(valor, "El tipo de equipo")
+        except (TypeError, ValueError) as error:
+            _LOGGER.exception("No se pudo validar el tipo de equipo.")
+            raise ServicioInvalidoError(str(error)) from error
 
     @property
     def cantidad(self) -> int:
@@ -255,7 +302,11 @@ class AlquilerEquipo(Servicio):
     @cantidad.setter
     def cantidad(self, valor: int) -> None:
         """Valida y almacena la cantidad de equipos."""
-        self.__cantidad = self._entero_positivo(valor, "La cantidad")
+        try:
+            self.__cantidad = self._entero_positivo(valor, "La cantidad")
+        except (TypeError, ValueError) as error:
+            _LOGGER.exception("No se pudo validar la cantidad de equipos.")
+            raise ServicioInvalidoError(str(error)) from error
 
     def calcular_costo(
         self,
@@ -290,6 +341,7 @@ class AsesoriaEspecializada(Servicio):
         super().__init__(nombre, tarifa_base, descripcion, disponible)
         self.especialidad = especialidad
         self.consultor = consultor
+        _LOGGER.info("Asesoría especializada creada: %s", self.identificador)
 
     @property
     def especialidad(self) -> str:
@@ -299,7 +351,11 @@ class AsesoriaEspecializada(Servicio):
     @especialidad.setter
     def especialidad(self, valor: str) -> None:
         """Valida y almacena la especialidad ofrecida."""
-        self.__especialidad = self._texto_no_vacio(valor, "La especialidad")
+        try:
+            self.__especialidad = self._texto_no_vacio(valor, "La especialidad")
+        except (TypeError, ValueError) as error:
+            _LOGGER.exception("No se pudo validar la especialidad de la asesoría.")
+            raise ServicioInvalidoError(str(error)) from error
 
     @property
     def consultor(self) -> str:
@@ -309,7 +365,11 @@ class AsesoriaEspecializada(Servicio):
     @consultor.setter
     def consultor(self, valor: str) -> None:
         """Valida y almacena el nombre del consultor."""
-        self.__consultor = self._texto_no_vacio(valor, "El consultor")
+        try:
+            self.__consultor = self._texto_no_vacio(valor, "El consultor")
+        except (TypeError, ValueError) as error:
+            _LOGGER.exception("No se pudo validar el consultor de la asesoría.")
+            raise ServicioInvalidoError(str(error)) from error
 
     def calcular_costo(
         self,
