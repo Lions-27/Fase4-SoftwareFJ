@@ -2,5 +2,20 @@
 
 from .cliente import Cliente
 from .entidad import Entidad
+from .reserva import Reserva
+from .servicio import (
+    AlquilerEquipo,
+    AsesoriaEspecializada,
+    ReservaSala,
+    Servicio,
+)
 
-__all__ = ["Cliente", "Entidad"]
+__all__ = [
+    "AlquilerEquipo",
+    "AsesoriaEspecializada",
+    "Cliente",
+    "Entidad",
+    "Reserva",
+    "ReservaSala",
+    "Servicio",
+]
